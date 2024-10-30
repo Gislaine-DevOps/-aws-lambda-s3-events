@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Create two S3 buckets, a Lambda function, and CloudWatch logs in us-east-2
+Resources:
+  # Create the S3 Buckets
+  SourceBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: bucket-gsource
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !GetAtt PixelatorFunction.Arn
+    DependsOn: PixelatorFunction
+
+  ProcessedBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: bucket-gprocessed
+
+  PixelatorRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: PixelatorRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'lambda.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: pixelator_access_inline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 's3:*'
+                Resource:
+                  - 'arn:aws:s3:::bucket-gprocessed'
+                  - 'arn:aws:s3:::bucket-gprocessed/*'
+                  - 'arn:aws:s3:::bucket-gsource'
+                  - 'arn:aws:s3:::bucket-gsource/*'
+              - Effect: 'Allow'
+                Action:
+                  - 'logs:CreateLogGroup'
+                Resource:
+                  - 'arn:aws:logs:us-east-2:058264146234:*'
+              - Effect: 'Allow'
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource:
+                  - 'arn:aws:logs:us-east-2:058264146234:log-group:/aws/lambda/pixelator:*'
+   # Create the Lambda Function
+  PixelatorFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: pixelator
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt PixelatorRole.Arn
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Code:
+        S3Bucket: dilane-bucket
+        S3Key: my-deployment-package.zip
+      Timeout: 60
+      Environment:
+        Variables:
+          processed_bucket: bucket-gprocessed
+
+  S3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+     FunctionName: !Ref PixelatorFunction
+     Action: lambda:InvokeFunction
+     Principal: s3.amazonaws.com
+     SourceAccount: !Ref 'AWS::AccountId' 
+  
+Outputs:
+  SourceBucketName:
+    Description: "Source Bucket Name"
+    Value: !GetAtt SourceBucket.Arn
+  ProcessedBucketName:
+    Description: "Processed Bucket Name"
+    Value: !GetAtt ProcessedBucket.Arn
+  PixelatorFunctionArn:
+     Description: "Pixelator Lambda Function ARN"
+     Value: !GetAtt PixelatorFunction.Arn
+
+  
